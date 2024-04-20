@@ -136,3 +136,5 @@ tmp*.png
 wandb/
 fid_outputs/
 *.pt
+
+output/

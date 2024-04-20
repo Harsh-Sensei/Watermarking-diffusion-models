@@ -9,6 +9,8 @@ import copy
 from typing import Any, Mapping
 import json
 import scipy
+from torchvision.utils import save_image
+ 
 
 
 def read_json(filename: str) -> Mapping[str, Any]:
@@ -193,8 +195,11 @@ def get_watermarking_pattern(pipe, args, device, shape=None):
     return gt_patch
 
 
-def inject_watermark(init_latents_w, watermarking_mask, gt_patch, args):
+def inject_watermark(init_latents_w, watermarking_mask, gt_patch, args, i):
     init_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(init_latents_w), dim=(-1, -2))
+    save_image(init_latents_w[0], f"output/{i}/latent_no_w_image.png")
+    save_image(init_latents_w_fft[0].real, f"output/{i}/fft_no_w_image.png")
+    
     if args.w_injection == 'complex':
         init_latents_w_fft[watermarking_mask] = gt_patch[watermarking_mask].clone()
     elif args.w_injection == 'seed':
@@ -203,7 +208,9 @@ def inject_watermark(init_latents_w, watermarking_mask, gt_patch, args):
     else:
         NotImplementedError(f'w_injection: {args.w_injection}')
 
+    save_image(init_latents_w_fft[0].real, f"output/{i}/fft_w_image.png")
     init_latents_w = torch.fft.ifft2(torch.fft.ifftshift(init_latents_w_fft, dim=(-1, -2))).real
+    save_image(init_latents_w[0], f"output/{i}/latent_w_image.png")
 
     return init_latents_w
 

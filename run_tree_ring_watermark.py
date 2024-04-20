@@ -12,6 +12,7 @@ from diffusers import DPMSolverMultistepScheduler
 import open_clip
 from optim_utils import *
 from io_utils import *
+from torchvision.utils import save_image
 
 
 def main(args):
@@ -24,7 +25,7 @@ def main(args):
     # load diffusion model
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     
-    scheduler = DPMSolverMultistepScheduler.from_pretrained(args.model_id, subfolder='scheduler')
+    scheduler = DPMSolverMultistepScheduler.from_pretrained(args.model_id, subfolder='scheduler', local_files_only=True)
     pipe = InversableStableDiffusionPipeline.from_pretrained(
         args.model_id,
         scheduler=scheduler,
@@ -46,7 +47,8 @@ def main(args):
 
     # ground-truth patch
     gt_patch = get_watermarking_pattern(pipe, args, device)
-
+    # print("gt_patch", gt_patch.shape, gt_patch.dtype)
+    # save_image(gt_patch[0].real, "gt_patch.png")
     results = []
     clip_scores = []
     clip_scores_w = []
@@ -55,9 +57,11 @@ def main(args):
 
     for i in tqdm(range(args.start, args.end)):
         seed = i + args.gen_seed
+        os.makedirs(f"output/{i}", exist_ok=True)
         
         current_prompt = dataset[i][prompt_key]
-        
+        print("current prompt : " , current_prompt)
+        continue
         ### generation
         # generation without watermarking
         set_random_seed(seed)
@@ -72,6 +76,8 @@ def main(args):
             latents=init_latents_no_w,
             )
         orig_image_no_w = outputs_no_w.images[0]
+        # print("orig_image_no_w shape : ", type(orig_image_no_w))
+        
         
         # generation with watermarking
         if init_latents_no_w is None:
@@ -82,9 +88,13 @@ def main(args):
 
         # get watermarking mask
         watermarking_mask = get_watermarking_mask(init_latents_w, args, device)
-
+        # print("watermarking_mask type : ", type(watermarking_mask), watermarking_mask.dtype, watermarking_mask.shape)
+        # save_image(watermarking_mask[0].float(), "watermark.png")
+        # input("Waiting")
+        orig_image_no_w.save(f"output/{i}/no_w_image.png")
         # inject watermark
-        init_latents_w = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args)
+        init_latents_w = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args, i)
+        # print("init_latents_w type : ", type(init_latents_w), init_latents_w.dtype, init_latents_w.shape)
 
         outputs_w = pipe(
             current_prompt,
@@ -96,6 +106,7 @@ def main(args):
             latents=init_latents_w,
             )
         orig_image_w = outputs_w.images[0]
+        orig_image_w.save(f"output/{i}/w_image.png")
 
         ### test watermark
         # distortion
