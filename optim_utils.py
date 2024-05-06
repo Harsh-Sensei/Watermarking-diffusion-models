@@ -9,8 +9,9 @@ import copy
 from typing import Any, Mapping
 import json
 import scipy
+import torch_dct as dct
 from torchvision.utils import save_image
- 
+import config
 
 
 def read_json(filename: str) -> Mapping[str, Any]:
@@ -144,6 +145,14 @@ def get_watermarking_mask(init_latents_w, args, device):
             watermarking_mask[:, :, anchor_p-args.w_radius:anchor_p+args.w_radius, anchor_p-args.w_radius:anchor_p+args.w_radius] = True
         else:
             watermarking_mask[:, args.w_channel, anchor_p-args.w_radius:anchor_p+args.w_radius, anchor_p-args.w_radius:anchor_p+args.w_radius] = True
+    elif args.w_mask_shape == 'corner':
+        anchor_p = init_latents_w.shape[-1]
+        if args.w_channel == -1:
+            # all channels
+            watermarking_mask[:, :, anchor_p-args.w_radius:anchor_p, anchor_p-args.w_radius:anchor_p] = True
+        else:
+            watermarking_mask[:, args.w_channel, anchor_p-args.w_radius:anchor_p, anchor_p-args.w_radius:anchor_p] = True
+        
     elif args.w_mask_shape == 'no':
         pass
     else:
@@ -182,8 +191,10 @@ def get_watermarking_pattern(pipe, args, device, shape=None):
         gt_patch = torch.fft.fftshift(torch.fft.fft2(gt_init), dim=(-1, -2)) * 0
         gt_patch += args.w_pattern_const
     elif 'ring' in args.w_pattern:
-        gt_patch = torch.fft.fftshift(torch.fft.fft2(gt_init), dim=(-1, -2))
-
+        if config.TRANSFORMATION == "fft":
+            gt_patch = torch.fft.fftshift(torch.fft.fft2(gt_init), dim=(-1, -2))
+        elif config.TRANSFORMATION == "dct":
+            gt_patch = dct.dct_2d(gt_init)
         gt_patch_tmp = copy.deepcopy(gt_patch)
         for i in range(args.w_radius, 0, -1):
             tmp_mask = circle_mask(gt_init.shape[-1], r=i)
@@ -196,9 +207,13 @@ def get_watermarking_pattern(pipe, args, device, shape=None):
 
 
 def inject_watermark(init_latents_w, watermarking_mask, gt_patch, args, i):
-    init_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(init_latents_w), dim=(-1, -2))
-    save_image(init_latents_w[0], f"output/{i}/latent_no_w_image.png")
-    save_image(init_latents_w_fft[0].real, f"output/{i}/fft_no_w_image.png")
+    if config.TRANSFORMATION == "fft":
+        init_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(init_latents_w), dim=(-1, -2))
+    elif config.TRANSFORMATION == "dct":
+        init_latents_w_fft = dct.dct_2d(init_latents_w)
+    
+    save_image(init_latents_w[0], f"output_{config.TRANSFORMATION}/{i}/latent_no_w_image.png")
+    save_image(init_latents_w_fft[0].real, f"output_{config.TRANSFORMATION}/{i}/fft_no_w_image.png")
     
     if args.w_injection == 'complex':
         init_latents_w_fft[watermarking_mask] = gt_patch[watermarking_mask].clone()
@@ -208,17 +223,37 @@ def inject_watermark(init_latents_w, watermarking_mask, gt_patch, args, i):
     else:
         NotImplementedError(f'w_injection: {args.w_injection}')
 
-    save_image(init_latents_w_fft[0].real, f"output/{i}/fft_w_image.png")
-    init_latents_w = torch.fft.ifft2(torch.fft.ifftshift(init_latents_w_fft, dim=(-1, -2))).real
-    save_image(init_latents_w[0], f"output/{i}/latent_w_image.png")
+    if config.TRANSFORMATION == "fft":
+        save_image(init_latents_w_fft[0].real, f"output_{config.TRANSFORMATION}/{i}/fft_w_image.png")
+        init_latents_w = torch.fft.ifft2(torch.fft.ifftshift(init_latents_w_fft, dim=(-1, -2))).real
+        save_image(init_latents_w[0], f"output_{config.TRANSFORMATION}/{i}/latent_w_image.png")
+    elif config.TRANSFORMATION == "dct":
+        save_image(init_latents_w_fft[0].real, f"output_{config.TRANSFORMATION}/{i}/fft_w_image.png")
+        init_latents_w = dct.idct_2d(init_latents_w_fft)
+        save_image(init_latents_w[0], f"output_{config.TRANSFORMATION}/{i}/latent_w_image.png")
+        
 
     return init_latents_w
 
 
-def eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args):
+def eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args, i):
     if 'complex' in args.w_measurement:
-        reversed_latents_no_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_no_w), dim=(-1, -2))
-        reversed_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w), dim=(-1, -2))
+        if config.TRANSFORMATION == "fft":
+            reversed_latents_no_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_no_w), dim=(-1, -2))
+            save_image(reversed_latents_no_w_fft[0].real, f"output_{config.TRANSFORMATION}/{i}/reversed_latents_no_w_fft.png")
+            
+        elif config.TRANSFORMATION == "dct":
+            reversed_latents_no_w_fft = dct.dct_2d(reversed_latents_no_w)
+            save_image(reversed_latents_no_w_fft[0], f"output_{config.TRANSFORMATION}/{i}/reversed_latents_no_w_fft.png")
+        
+        if config.TRANSFORMATION == "fft":
+            reversed_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w), dim=(-1, -2))
+            save_image(reversed_latents_w_fft[0].real, f"output_{config.TRANSFORMATION}/{i}/reversed_latents_w_fft.png")
+    
+        elif config.TRANSFORMATION == "dct":
+            reversed_latents_w_fft = dct.dct_2d(reversed_latents_w)
+            save_image(reversed_latents_w_fft[0], f"output_{config.TRANSFORMATION}/{i}/reversed_latents_w_fft.png")
+
         target_patch = gt_patch
     elif 'seed' in args.w_measurement:
         reversed_latents_no_w_fft = reversed_latents_no_w
@@ -237,8 +272,16 @@ def eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask,
 
 def get_p_value(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args):
     # assume it's Fourier space wm
-    reversed_latents_no_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_no_w), dim=(-1, -2))[watermarking_mask].flatten()
-    reversed_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w), dim=(-1, -2))[watermarking_mask].flatten()
+    if config.TRANSFORMATION == "fft":
+        reversed_latents_no_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_no_w), dim=(-1, -2))[watermarking_mask].flatten()
+    elif config.TRANSFORMATION == "dct":
+        reversed_latents_no_w_fft = dct.idct_2d(reversed_latents_no_w)
+    
+    if config.TRANSFORMATION == "fft":
+        reversed_latents_w_fft = torch.fft.fftshift(torch.fft.fft2(reversed_latents_w), dim=(-1, -2))[watermarking_mask].flatten()
+    elif config.TRANSFORMATION == "dct":
+        reversed_latents_w_fft = dct.idct_2d(reversed_latents_w)
+    
     target_patch = gt_patch[watermarking_mask].flatten()
 
     target_patch = torch.concatenate([target_patch.real, target_patch.imag])

@@ -13,6 +13,7 @@ import open_clip
 from optim_utils import *
 from io_utils import *
 from torchvision.utils import save_image
+import config
 
 
 def main(args):
@@ -57,11 +58,9 @@ def main(args):
 
     for i in tqdm(range(args.start, args.end)):
         seed = i + args.gen_seed
-        os.makedirs(f"output/{i}", exist_ok=True)
+        os.makedirs(f"output_{config.TRANSFORMATION}/{i}", exist_ok=True)
         
         current_prompt = dataset[i][prompt_key]
-        print("current prompt : " , current_prompt)
-        continue
         ### generation
         # generation without watermarking
         set_random_seed(seed)
@@ -91,7 +90,7 @@ def main(args):
         # print("watermarking_mask type : ", type(watermarking_mask), watermarking_mask.dtype, watermarking_mask.shape)
         # save_image(watermarking_mask[0].float(), "watermark.png")
         # input("Waiting")
-        orig_image_no_w.save(f"output/{i}/no_w_image.png")
+        orig_image_no_w.save(f"output_{config.TRANSFORMATION}/{i}/no_w_image.png")
         # inject watermark
         init_latents_w = inject_watermark(init_latents_w, watermarking_mask, gt_patch, args, i)
         # print("init_latents_w type : ", type(init_latents_w), init_latents_w.dtype, init_latents_w.shape)
@@ -106,7 +105,7 @@ def main(args):
             latents=init_latents_w,
             )
         orig_image_w = outputs_w.images[0]
-        orig_image_w.save(f"output/{i}/w_image.png")
+        orig_image_w.save(f"output_{config.TRANSFORMATION}/{i}/w_image.png")
 
         ### test watermark
         # distortion
@@ -135,7 +134,10 @@ def main(args):
         )
 
         # eval
-        no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args)
+        # save_image(reversed_latents_no_w[0], "reversed_latents_no_w.png")
+        # save_image(reversed_latents_w[0], "reversed_latents_w.png")
+
+        no_w_metric, w_metric = eval_watermark(reversed_latents_no_w, reversed_latents_w, watermarking_mask, gt_patch, args, i)
 
         if args.reference_model is not None:
             sims = measure_similarity([orig_image_no_w, orig_image_w], current_prompt, ref_model, ref_clip_preprocess, ref_tokenizer, device)
